@@ -17,6 +17,7 @@ package com.streamsets.pipeline.stage.origin.multikafka;
 
 import com.google.common.base.Throwables;
 import com.streamsets.pipeline.api.BatchContext;
+import com.streamsets.pipeline.api.DeliveryGuarantee;
 import com.streamsets.pipeline.api.Field;
 import com.streamsets.pipeline.api.Record;
 import com.streamsets.pipeline.api.Stage;
@@ -116,11 +117,17 @@ public class MultiKafkaSource extends BasePushSource {
             for (ConsumerRecord<String, byte[]> item : messages) {
               list.add(item);
               if (list.size() == conf.maxBatchSize) {
+                if (getContext().getDeliveryGuarantee() == DeliveryGuarantee.AT_MOST_ONCE) {
+                  consumer.commitSync();
+                }
                 sendBatch(list);
                 list.clear();
               }
             }
             messagesProcessed += messages.count();
+            if (getContext().getDeliveryGuarantee() == DeliveryGuarantee.AT_LEAST_ONCE) {
+              consumer.commitSync();
+            }
             LOG.trace("Kafka thread {} finished processing {} messages", this.threadID, messages.count());
           } else {
             if (!list.isEmpty()) {
@@ -313,11 +320,10 @@ public class MultiKafkaSource extends BasePushSource {
     props.setProperty("bootstrap.servers", conf.brokerURI);
     props.setProperty("group.id", conf.consumerGroup);
     props.setProperty("max.poll.records", String.valueOf(batchSize));
-    props.setProperty("enable.auto.commit", "true");
-    props.setProperty("auto.commit.interval.ms", "1000");
     props.setProperty(KafkaConstants.KEY_DESERIALIZER_CLASS_CONFIG, conf.keyDeserializer.getKeyClass());
     props.setProperty(KafkaConstants.VALUE_DESERIALIZER_CLASS_CONFIG, conf.valueDeserializer.getValueClass());
     props.setProperty(KafkaConstants.CONFLUENT_SCHEMA_REGISTRY_URL_CONFIG, StringUtils.join(conf.dataFormatConfig.schemaRegistryUrls, ","));
+    props.setProperty(KafkaConstants.AUTO_COMMIT_OFFEST, "false");
 
     if(context.isPreview()) {
       props.setProperty(KafkaConstants.AUTO_OFFSET_RESET_CONFIG, KafkaConstants.AUTO_OFFSET_RESET_PREVIEW_VALUE);
